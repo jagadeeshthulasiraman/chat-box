@@ -10,33 +10,37 @@ import os
 import shutil
 import uuid
 
+# =========================
 # Load environment variables
+# =========================
 load_dotenv()
 
 SECRET_KEY = os.getenv("SECRET_KEY", "supersecretkey")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-# FastAPI app
+# =========================
+# FastAPI App
+# =========================
 app = FastAPI()
 
-# ✅ Allow frontend requests (CORS)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # change to ["https://your-frontend.onrender.com"] for stricter security
+    allow_origins=["*"],  # Change later to your frontend domain
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# OAuth2 setup
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 # In-memory stores
 users_db = {}
 projects_db = {}
 
-# ------------------ MODELS ------------------
+# =========================
+# Models
+# =========================
 class User(BaseModel):
     email: str
     password: str
@@ -46,7 +50,7 @@ class Token(BaseModel):
     token_type: str
 
 class Project(BaseModel):
-    id: str
+    id: Optional[str] = None
     name: str
     files: List[str] = []
 
@@ -55,14 +59,14 @@ class ChatMessage(BaseModel):
     message: str
     reset: bool = False
 
-
-# ------------------ UTILS ------------------
+# =========================
+# Utils
+# =========================
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
 
 def get_current_user(token: str = Depends(oauth2_scheme)):
     credentials_exception = HTTPException(
@@ -79,15 +83,22 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
         raise credentials_exception
     return users_db[email]
 
+# =========================
+# Root (Health Check)
+# =========================
+@app.get("/", include_in_schema=False)
+async def root():
+    return {"msg": "✅ Chat Box Backend is running on Render"}
 
-# ------------------ AUTH ------------------
+# =========================
+# Auth
+# =========================
 @app.post("/register")
 def register(user: User):
     if user.email in users_db:
         raise HTTPException(status_code=400, detail="User already exists")
     users_db[user.email] = {"email": user.email, "password": user.password}
     return {"msg": "User registered successfully"}
-
 
 @app.post("/token", response_model=Token)
 def login(form_data: OAuth2PasswordRequestForm = Depends()):
@@ -97,20 +108,18 @@ def login(form_data: OAuth2PasswordRequestForm = Depends()):
     access_token = create_access_token(data={"sub": user["email"]})
     return {"access_token": access_token, "token_type": "bearer"}
 
-
-# ------------------ PROJECTS ------------------
+# =========================
+# Projects
+# =========================
 @app.get("/projects", response_model=List[Project])
 def get_projects(current_user: dict = Depends(get_current_user)):
     return list(projects_db.values())
 
-
 @app.post("/projects", response_model=Project)
 def create_project(project: Project, current_user: dict = Depends(get_current_user)):
-    if project.id in projects_db:
-        raise HTTPException(status_code=400, detail="Project already exists")
+    project.id = str(uuid.uuid4())
     projects_db[project.id] = project
     return project
-
 
 @app.delete("/projects/{project_id}")
 def delete_project(project_id: str, current_user: dict = Depends(get_current_user)):
@@ -119,8 +128,9 @@ def delete_project(project_id: str, current_user: dict = Depends(get_current_use
     del projects_db[project_id]
     return {"msg": "Project deleted"}
 
-
-# ------------------ FILE UPLOAD ------------------
+# =========================
+# File Upload
+# =========================
 @app.post("/projects/{project_id}/upload")
 def upload_file(
     project_id: str,
@@ -142,7 +152,6 @@ def upload_file(
     projects_db[project_id].files.append(filename)
     return {"filename": filename, "msg": "File uploaded successfully"}
 
-
 @app.delete("/projects/{project_id}/files/{file_index}")
 def delete_file(project_id: str, file_index: int, current_user: dict = Depends(get_current_user)):
     if project_id not in projects_db:
@@ -153,15 +162,19 @@ def delete_file(project_id: str, file_index: int, current_user: dict = Depends(g
     except IndexError:
         raise HTTPException(status_code=404, detail="File not found")
 
-
-# ------------------ CHAT ------------------
+# =========================
+# Chat (Echo Demo)
+# =========================
 @app.post("/chat")
 def chat(chat: ChatMessage, current_user: dict = Depends(get_current_user)):
     if chat.project_id not in projects_db:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    # (Demo response - replace with OpenAI/OpenRouter call)
     response = f"🤖 Echo: {chat.message}"
 
-    return {"history": [{"role": "user", "content": chat.message},
-                        {"role": "assistant", "content": response}]}
+    return {
+        "history": [
+            {"role": "user", "content": chat.message},
+            {"role": "assistant", "content": response},
+        ]
+    }
