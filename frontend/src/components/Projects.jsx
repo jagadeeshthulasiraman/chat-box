@@ -1,117 +1,141 @@
-import { useState, useEffect } from "react";
-import {
-  getProjects,
-  createProject,
-  uploadFile,
-  deleteFile,
-} from "../api";
-import Chat from "./Chat";
+import { useEffect, useState } from "react";
+import { getProjects, createProject, deleteFile, uploadFile } from "./api";
+import ChatPage from "./ChatPage";
 
-export default function Projects({ token }) {
+export default function ProjectsPage({ token, onLogout }) {
   const [projects, setProjects] = useState([]);
   const [newName, setNewName] = useState("");
-  const [selected, setSelected] = useState(null);
+  const [activeProject, setActiveProject] = useState(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    loadProjects();
+    fetchProjects();
   }, []);
 
-  const loadProjects = async () => {
+  async function fetchProjects() {
     try {
+      setLoading(true);
       const res = await getProjects(token);
       setProjects(res);
-      if (selected) {
-        const updated = res.find((p) => p.id === selected.id);
-        setSelected(updated || null);
-      }
     } catch (err) {
-      console.error("Error loading projects:", err);
+      alert("❌ Failed to load projects");
+    } finally {
+      setLoading(false);
     }
-  };
+  }
 
-  const addProject = async () => {
+  async function addProject() {
     if (!newName.trim()) return;
-    const res = await createProject(token, newName);
-    setProjects([...projects, res]);
-    setNewName("");
-  };
+    try {
+      await createProject(token, newName);
+      setNewName("");
+      fetchProjects();
+    } catch {
+      alert("❌ Could not create project");
+    }
+  }
 
-  const handleUpload = async (e) => {
-    if (!selected) return alert("Select a project first");
+  async function handleUpload(e, projectId) {
     const file = e.target.files[0];
     if (!file) return;
-    await uploadFile(token, selected.id, file);
-    await loadProjects();
-  };
+    try {
+      await uploadFile(token, projectId, file);
+      fetchProjects();
+    } catch {
+      alert("❌ Upload failed");
+    }
+  }
 
-  const handleDeleteFile = async (index) => {
-    await deleteFile(token, selected.id, index);
-    await loadProjects();
-  };
+  async function handleDeleteFile(projectId, index) {
+    try {
+      await deleteFile(token, projectId, index);
+      fetchProjects();
+    } catch {
+      alert("❌ Could not delete file");
+    }
+  }
 
   return (
-    <div>
-      <h2 className="text-xl font-bold mb-2">Projects</h2>
+    <div className="p-4">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-xl font-bold">📂 Projects</h2>
+        <button
+          onClick={onLogout}
+          className="px-3 py-1 rounded bg-red-600 text-white hover:bg-red-700"
+        >
+          Logout
+        </button>
+      </div>
 
-      <ul className="mb-3">
-        {projects.map((p) => (
-          <li key={p.id}>
-            <button
-              onClick={() => setSelected(p)}
-              className={`px-2 py-1 rounded ${
-                selected?.id === p.id
-                  ? "bg-blue-500 text-white"
-                  : "bg-gray-200"
-              }`}
-            >
-              {p.name}
-            </button>
-          </li>
-        ))}
-      </ul>
-
-      <div className="mb-4">
+      {/* Add Project */}
+      <div className="mb-4 flex gap-2">
         <input
+          className="border rounded p-2 flex-grow"
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
           placeholder="New project name"
-          className="border px-2 py-1 mr-2"
         />
         <button
           onClick={addProject}
-          className="bg-green-500 text-white px-3 py-1 rounded"
+          className="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700"
         >
           Create
         </button>
       </div>
 
-      {selected && (
+      {/* Project List */}
+      {loading ? (
+        <p>Loading...</p>
+      ) : (
+        <ul className="space-y-3">
+          {projects.map((p) => (
+            <li
+              key={p.id}
+              className="p-3 border rounded bg-white shadow-sm dark:bg-gray-800"
+            >
+              {/* Project Name */}
+              <div
+                className="font-semibold cursor-pointer text-blue-600"
+                onClick={() => setActiveProject(p)}
+              >
+                {p.name}
+              </div>
+
+              {/* File Upload */}
+              <div className="mt-2">
+                <input
+                  type="file"
+                  onChange={(e) => handleUpload(e, p.id)}
+                />
+              </div>
+
+              {/* File List */}
+              <ul className="mt-2 pl-4 list-disc">
+                {p.files.map((f, i) => (
+                  <li key={i} className="flex justify-between items-center">
+                    <span>{f}</span>
+                    <button
+                      onClick={() => handleDeleteFile(p.id, i)}
+                      className="text-red-600 hover:underline"
+                    >
+                      ❌
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* Chat for Active Project */}
+      {activeProject && (
         <div className="mt-6">
-          <h3 className="text-lg font-semibold mb-2">
-            Selected: {selected.name}
-          </h3>
-
-          {/* File upload */}
-          <input type="file" onChange={handleUpload} className="mb-2" />
-
-          {/* File list */}
-          <ul className="mb-4">
-            {selected.files &&
-              selected.files.map((f, i) => (
-                <li key={i} className="flex justify-between items-center">
-                  <span>{f}</span>
-                  <button
-                    onClick={() => handleDeleteFile(i)}
-                    className="bg-red-500 text-white px-2 py-1 rounded"
-                  >
-                    Delete
-                  </button>
-                </li>
-              ))}
-          </ul>
-
-          {/* Chatbox */}
-          <Chat token={token} project={selected} />
+          <ChatPage
+            token={token}
+            project={activeProject}
+            onClose={() => setActiveProject(null)}
+          />
         </div>
       )}
     </div>

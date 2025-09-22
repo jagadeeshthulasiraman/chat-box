@@ -4,12 +4,10 @@ import Register from "./components/Register";
 import Projects from "./components/Projects";
 
 export default function App() {
-  const [token, setToken] = useState(localStorage.getItem("token"));
+  const [token, setToken] = useState(localStorage.getItem("accessToken"));
   const [view, setView] = useState(token ? "projects" : "login");
 
   useEffect(() => {
-    // The key in localStorage should match what you set it as.
-    // Let's use 'accessToken' to be consistent with potential API modules.
     if (token) {
       localStorage.setItem("accessToken", token);
     } else {
@@ -17,8 +15,8 @@ export default function App() {
     }
   }, [token]);
 
-  const handleLogin = (t) => {
-    setToken(t);
+  const handleLogin = (newToken) => {
+    setToken(newToken);
     setView("projects");
   };
 
@@ -27,34 +25,37 @@ export default function App() {
     setView("login");
   };
 
-  // When not logged in, we want to center the form.
-  // When logged in, we want the projects view to take up the full width.
-  const contentContainerClass =
-    view === "projects"
-      ? "p-4"
-      : "flex-grow flex items-center justify-center";
-
   return (
     <div className="bg-gray-100 min-h-screen flex flex-col">
-      <div className="p-4 flex justify-between items-center border-b border-gray-300">
-        <h1 className="text-2xl font-bold"> Minimal Chatbot</h1>
-        <div>
-          {token && (
-            <button
-              className="px-3 py-1 rounded bg-red-600 text-white hover:bg-red-700"
-              onClick={handleLogout}
-            >
-              Logout
-            </button>
-          )}
-        </div>
-      </div>
+      {/* Header */}
+      <header className="p-4 flex justify-between items-center border-b border-gray-300">
+        <h1 className="text-2xl font-bold">Minimal Chatbot</h1>
+        {token && (
+          <button
+            onClick={handleLogout}
+            className="px-3 py-1 rounded bg-red-600 text-white hover:bg-red-700"
+          >
+            Logout
+          </button>
+        )}
+      </header>
 
-      <div className={contentContainerClass}>
-        {view === "login" && <Login onLogin={handleLogin} onSwitch={() => setView("register")} />}
-        {view === "register" && <Register onSwitch={() => setView("login")} />}
+      {/* Content */}
+      <main
+        className={
+          view === "projects"
+            ? "p-4 flex-grow"
+            : "flex-grow flex items-center justify-center"
+        }
+      >
+        {view === "login" && (
+          <Login onLogin={handleLogin} onSwitch={() => setView("register")} />
+        )}
+        {view === "register" && (
+          <Register onSwitch={() => setView("login")} />
+        )}
         {view === "projects" && <Projects token={token} />}
-      </div>
+      </main>
     </div>
   );
 }
