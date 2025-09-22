@@ -1,13 +1,20 @@
+// src/api.js
 import axios from "axios";
 
-// ✅ Change this to your deployed backend when in production
-const API_URL = "https://chat-box-backend-pv5y.onrender.com";
+// 🔹 Automatically switch between local + production
+const API_URL =
+  window.location.hostname === "localhost"
+    ? "http://127.0.0.1:8000" // local FastAPI
+    : "https://chat-box-backend-pv5y.onrender.com"; // Render backend
 
 // ---------- AUTH ----------
 export async function login(email, password) {
-  const res = await axios.post(`${API_URL}/token`, {
-    username: email,
-    password,
+  const params = new URLSearchParams();
+  params.append("username", email); // backend expects "username"
+  params.append("password", password);
+
+  const res = await axios.post(`${API_URL}/token`, params, {
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
   });
   return res.data;
 }
