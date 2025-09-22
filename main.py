@@ -71,7 +71,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 def get_current_user(token: str = Depends(oauth2_scheme)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="❌ Could not validate credentials",
+        detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
@@ -88,7 +88,7 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
 # =========================
 @app.get("/", include_in_schema=False)
 async def root():
-    return {"msg": "✅ Chat Box Backend is running on Render"}
+    return {"msg": "Chat Box Backend is running on Render"}
 
 # =========================
 # Auth
@@ -126,7 +126,7 @@ def delete_project(project_id: str, current_user: dict = Depends(get_current_use
     if project_id not in projects_db:
         raise HTTPException(status_code=404, detail="Project not found")
     del projects_db[project_id]
-    return {"msg": "Project deleted"}
+    return {"msg": "Project deleted successfully"}
 
 # =========================
 # File Upload
@@ -158,7 +158,7 @@ def delete_file(project_id: str, file_index: int, current_user: dict = Depends(g
         raise HTTPException(status_code=404, detail="Project not found")
     try:
         removed = projects_db[project_id].files.pop(file_index)
-        return {"msg": f"Removed {removed}"}
+        return {"msg": f"File '{removed}' deleted successfully"}
     except IndexError:
         raise HTTPException(status_code=404, detail="File not found")
 
@@ -170,7 +170,7 @@ def chat(chat: ChatMessage, current_user: dict = Depends(get_current_user)):
     if chat.project_id not in projects_db:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    response = f"🤖 Echo: {chat.message}"
+    response = f"Echo: {chat.message}"
 
     return {
         "history": [
