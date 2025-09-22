@@ -1,43 +1,48 @@
-import React, { useState } from "react";
-import { chat } from "../api.js";  // ✅ use shared API helper
+import { useState } from "react";
+import { chat } from "../api";
 
-export default function ChatPage() {
+export default function Chat({ token, project }) {
   const [message, setMessage] = useState("");
-  const [chatHistory, setChatHistory] = useState([]);
+  const [history, setHistory] = useState([]);
 
   const sendMessage = async () => {
-    const token = localStorage.getItem("token");
-    if (!message) return;
-
+    if (!message.trim()) return;
     try {
-      const res = await chat(token, 1, message);  // ✅ uses backend API helper
-      setChatHistory(res.history || []);
+      const res = await chat(token, project.id, message);
+      setHistory(res.history);
       setMessage("");
     } catch (err) {
-      alert("❌ " + (err.detail || "Server error"));
+      alert("❌ Chat error");
     }
   };
 
   return (
-    <div>
-      <h2>Chat</h2>
+    <div className="mt-4 border p-3 rounded bg-gray-50">
+      <h4 className="font-semibold mb-2">Chat with {project.name}</h4>
 
-      {/* Chat messages */}
-      <div>
-        {chatHistory.map((c, i) => (
-          <p key={i}>
-            <b>{c.role}:</b> {c.content}
-          </p>
+      <div className="h-40 overflow-y-auto border mb-2 p-2 bg-white">
+        {history.map((m, i) => (
+          <div key={i} className="mb-1">
+            <strong>{m.role === "user" ? "You" : "Bot"}:</strong>{" "}
+            {m.content}
+          </div>
         ))}
       </div>
 
-      {/* Input + Send */}
-      <input
-        value={message}
-        onChange={(e) => setMessage(e.target.value)}
-        placeholder="Type here..."
-      />
-      <button onClick={sendMessage}>Send</button>
+      <div className="flex">
+        <input
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          placeholder="Type a message..."
+          className="flex-grow border px-2 py-1 mr-2"
+        />
+        <button
+          onClick={sendMessage}
+          className="bg-blue-500 text-white px-3 py-1 rounded"
+        >
+          Send
+        </button>
+      </div>
     </div>
   );
 }
