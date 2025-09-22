@@ -1,0 +1,18 @@
+# Git ignore rules 
+# Environment files (secrets)
+.env
+.env.local
+.env.*
+
+# Python
+__pycache__/
+*.pyc
+venv/
+
+# Node / React
+node_modules/
+dist/
+build/
+
+# OS / Misc
+.DS_Store
