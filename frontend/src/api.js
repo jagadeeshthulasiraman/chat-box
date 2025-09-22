@@ -1,4 +1,5 @@
-const API_URL = "http://127.0.0.1:8000";
+// Hardcoded backend URL for production
+const API_URL = "https://chat-box-backend-pv5y.onrender.com";
 
 // Register
 export async function register(email, password) {
