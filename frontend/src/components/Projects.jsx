@@ -1,5 +1,13 @@
 import React, { useState, useEffect } from "react";
-import { listProjects, createProject, chat, uploadFile, deleteFile } from "../api";
+import {
+  listProjects,
+  createProject,
+  chat,
+  uploadFile,
+  deleteFile,
+} from "../api";
+
+const API_URL = "https://chat-box-backend.onrender.com"; // ✅ reuse backend URL
 
 export default function Projects({ token, darkMode }) {
   const [projects, setProjects] = useState([]);
@@ -9,16 +17,16 @@ export default function Projects({ token, darkMode }) {
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectDesc, setNewProjectDesc] = useState("");
 
-  // Fetch projects when token changes
+  // Fetch projects
   useEffect(() => {
     async function fetchProjects() {
       const data = await listProjects(token);
-      setProjects(data.projects || []);
+      setProjects(data.projects || data || []); // ✅ support both {projects: []} or []
     }
     fetchProjects();
   }, [token]);
 
-  // Create new project
+  // Create project
   async function handleCreateProject() {
     if (!newProjectName) return alert("Project name is required!");
     const res = await createProject(token, newProjectName, newProjectDesc);
@@ -27,62 +35,70 @@ export default function Projects({ token, darkMode }) {
     setNewProjectDesc("");
   }
 
-  // Send chat message
+  // Send chat
   async function handleSendMessage() {
     if (!selectedProject || !message) return;
-    const res = await chat(token, selectedProject.id, message);
-    setChatHistory(res.history || []);
+    const res = await chat(token, selectedProject.id || selectedProject._id, message);
+
+    // ✅ support both res.history and res.response
+    if (res.history) {
+      setChatHistory(res.history);
+    } else if (res.response) {
+      setChatHistory([...chatHistory, { role: "user", content: message }, { role: "assistant", content: res.response }]);
+    }
+
     setMessage("");
   }
 
-  // Upload PDF
+  // Upload file
   async function handleFileUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
 
-    const res = await uploadFile(token, selectedProject.id, file);
+    const res = await uploadFile(token, selectedProject.id || selectedProject._id, file);
     alert(res.msg || "File uploaded!");
 
-    // Refresh project list & current project
     const updated = await listProjects(token);
-    setProjects(updated.projects || []);
-    const updatedProject = updated.projects.find((p) => p.id === selectedProject.id);
+    setProjects(updated.projects || updated || []);
+    const updatedProject = (updated.projects || updated || []).find(
+      (p) => p.id === selectedProject.id || p._id === selectedProject._id
+    );
     setSelectedProject(updatedProject);
   }
 
-  // Delete uploaded file
-  async function handleDeleteFile(fileIndex) {
-    const res = await deleteFile(token, selectedProject.id, fileIndex);
+  // Delete file
+  async function handleDeleteFile(filename) {
+    const res = await deleteFile(token, selectedProject.id || selectedProject._id, filename);
     alert(res.msg || "File deleted!");
 
-    // Refresh project list & current project
     const updated = await listProjects(token);
-    setProjects(updated.projects || []);
-    const updatedProject = updated.projects.find((p) => p.id === selectedProject.id);
+    setProjects(updated.projects || updated || []);
+    const updatedProject = (updated.projects || updated || []).find(
+      (p) => p.id === selectedProject.id || p._id === selectedProject._id
+    );
     setSelectedProject(updatedProject);
   }
 
-  // Delete whole project
+  // Delete project
   async function handleDeleteProject(projectId) {
-    const res = await fetch(`http://127.0.0.1:8000/projects/${projectId}`, {
+    const res = await fetch(`${API_URL}/projects/${projectId}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await res.json();
     alert(data.msg || "Project deleted!");
 
-    // Refresh list and clear selection if deleted project is open
     const updated = await listProjects(token);
-    setProjects(updated.projects || []);
-    if (selectedProject && selectedProject.id === projectId) {
+    setProjects(updated.projects || updated || []);
+    if (selectedProject && (selectedProject.id === projectId || selectedProject._id === projectId)) {
       setSelectedProject(null);
       setChatHistory([]);
     }
   }
 
-  // Reset chat history only
+  // Reset chat history
   async function handleResetChat() {
-    const res = await fetch(`http://127.0.0.1:8000/projects/${selectedProject.id}/chats`, {
+    const res = await fetch(`${API_URL}/projects/${selectedProject.id || selectedProject._id}/chats`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -91,7 +107,7 @@ export default function Projects({ token, darkMode }) {
     setChatHistory([]);
   }
 
-  // ✅ Styling helper for light/dark mode
+  // Styles
   const boxStyle = {
     border: "1px solid #ccc",
     height: 200,
@@ -122,7 +138,7 @@ export default function Projects({ token, darkMode }) {
     <div>
       <h2>Projects</h2>
 
-      {/* Create Project Form */}
+      {/* Create Project */}
       <div style={{ marginBottom: 20 }}>
         <input
           placeholder="Project name"
@@ -144,7 +160,7 @@ export default function Projects({ token, darkMode }) {
       {/* Project List */}
       <ul>
         {projects.map((p) => (
-          <li key={p.id}>
+          <li key={p.id || p._id}>
             <button
               style={buttonStyle}
               onClick={() => {
@@ -155,8 +171,13 @@ export default function Projects({ token, darkMode }) {
               {p.name}
             </button>
             <button
-              style={{ ...buttonStyle, marginLeft: 10, backgroundColor: "red", color: "white" }}
-              onClick={() => handleDeleteProject(p.id)}
+              style={{
+                ...buttonStyle,
+                marginLeft: 10,
+                backgroundColor: "red",
+                color: "white",
+              }}
+              onClick={() => handleDeleteProject(p.id || p._id)}
             >
               ❌ Delete Project
             </button>
@@ -164,21 +185,27 @@ export default function Projects({ token, darkMode }) {
         ))}
       </ul>
 
+      {/* Selected Project */}
       {selectedProject && (
         <div style={{ marginTop: 20 }}>
           <h3>Chat – {selectedProject.name}</h3>
 
-          {/* Show uploaded files */}
+          {/* Uploaded Files */}
           {selectedProject.files && selectedProject.files.length > 0 && (
             <div style={{ marginBottom: 10 }}>
               <b>Uploaded Files:</b>
               <ul>
                 {selectedProject.files.map((f, i) => (
                   <li key={i}>
-                    {f.filename}
+                    {f.filename || f.name}
                     <button
-                      style={{ marginLeft: 10, color: "red", background: "transparent", border: "none" }}
-                      onClick={() => handleDeleteFile(i)}
+                      style={{
+                        marginLeft: 10,
+                        color: "red",
+                        background: "transparent",
+                        border: "none",
+                      }}
+                      onClick={() => handleDeleteFile(f.filename || f.name)}
                     >
                       ❌
                     </button>
@@ -197,9 +224,14 @@ export default function Projects({ token, darkMode }) {
             ))}
           </div>
 
-          {/* Reset Chat Button */}
+          {/* Reset Chat */}
           <button
-            style={{ ...buttonStyle, marginBottom: 10, backgroundColor: "orange", color: "white" }}
+            style={{
+              ...buttonStyle,
+              marginBottom: 10,
+              backgroundColor: "orange",
+              color: "white",
+            }}
             onClick={handleResetChat}
           >
             Reset Chat History

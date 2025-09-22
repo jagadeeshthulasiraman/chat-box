@@ -1,10 +1,18 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { register } from "../api";
 
 export default function Register({ onSwitch }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const emailRef = useRef(null);
+
+  // Autofocus email on mount
+  useEffect(() => {
+    if (emailRef.current) {
+      emailRef.current.focus();
+    }
+  }, []);
 
   async function handleRegister(e) {
     e.preventDefault();
@@ -12,14 +20,15 @@ export default function Register({ onSwitch }) {
 
     try {
       const data = await register(email, password);
-      if (data.msg) {
-        alert("✅ " + data.msg);
-        onSwitch(); // Go back to login
+
+      if (data.msg || data.message) {
+        alert("✅ " + (data.msg || data.message));
+        onSwitch(); // Switch back to login
       } else {
         alert("❌ " + (data.detail || "Registration failed"));
       }
     } catch (err) {
-      alert("❌ Server error. Please try again.");
+      alert(err.response?.data?.detail || "❌ Server error. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -33,7 +42,9 @@ export default function Register({ onSwitch }) {
       <h2 className="text-2xl font-bold mb-4 text-center">Register</h2>
 
       <input
+        ref={emailRef}
         type="email"
+        aria-label="Email"
         className="w-full p-2 border rounded mb-3 dark:bg-gray-700 dark:text-white"
         placeholder="Email"
         value={email}
@@ -43,6 +54,7 @@ export default function Register({ onSwitch }) {
 
       <input
         type="password"
+        aria-label="Password"
         className="w-full p-2 border rounded mb-3 dark:bg-gray-700 dark:text-white"
         placeholder="Password"
         value={password}
@@ -68,7 +80,7 @@ export default function Register({ onSwitch }) {
       <p className="mt-3 text-sm text-center text-gray-600 dark:text-gray-300">
         Already have an account?{" "}
         <button
-          type="button"
+          type="button" // ✅ prevents accidental submit
           className="text-blue-600 dark:text-blue-400 underline"
           onClick={onSwitch}
         >

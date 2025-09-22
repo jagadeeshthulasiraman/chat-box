@@ -1,35 +1,37 @@
-import { useState } from "react";
-import axios from "axios";
+import React, { useState } from "react";
+import { chat } from "../api.js";  // ✅ use shared API helper
 
 export default function ChatPage() {
   const [message, setMessage] = useState("");
-  const [chat, setChat] = useState([]);
+  const [chatHistory, setChatHistory] = useState([]);
 
   const sendMessage = async () => {
     const token = localStorage.getItem("token");
+    if (!message) return;
+
     try {
-      const res = await axios.post(
-        "http://127.0.0.1:8000/chat",
-        { project_id: 1, message, reset: false },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      setChat(res.data.history);
+      const res = await chat(token, 1, message);  // ✅ uses backend API helper
+      setChatHistory(res.history || []);
       setMessage("");
     } catch (err) {
-      alert("❌ " + err.response.data.detail);
+      alert("❌ " + (err.detail || "Server error"));
     }
   };
 
   return (
     <div>
       <h2>Chat</h2>
+
+      {/* Chat messages */}
       <div>
-        {chat.map((c, i) => (
+        {chatHistory.map((c, i) => (
           <p key={i}>
             <b>{c.role}:</b> {c.content}
           </p>
         ))}
       </div>
+
+      {/* Input + Send */}
       <input
         value={message}
         onChange={(e) => setMessage(e.target.value)}
