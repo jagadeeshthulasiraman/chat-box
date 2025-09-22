@@ -118,6 +118,16 @@ def call_openrouter(messages):
 # ==============================
 # Routes
 # ==============================
+
+# ✅ Root health check (for Render)
+@app.get("/", include_in_schema=False)
+async def root():
+    return {"msg": "✅ Chat Box Backend is running on Render"}
+
+@app.head("/", include_in_schema=False)
+async def root_head():
+    return {"msg": "✅ Chat Box Backend is running on Render"}
+
 @app.post("/register")
 def register(req: RegisterRequest):
     if req.email in users_db:
