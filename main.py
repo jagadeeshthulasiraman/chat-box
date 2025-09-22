@@ -2,252 +2,166 @@ from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from dotenv import load_dotenv
-import os, shutil, PyPDF2, requests, traceback
+import os
+import shutil
+import uuid
 
-# ==============================
 # Load environment variables
-# ==============================
 load_dotenv()
 
 SECRET_KEY = os.getenv("SECRET_KEY", "supersecretkey")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-if not OPENROUTER_API_KEY:
-    raise RuntimeError("❌ OPENROUTER_API_KEY is missing. Please add it to .env")
-
-OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-
-# ==============================
-# FastAPI App Setup
-# ==============================
+# FastAPI app
 app = FastAPI()
 
+# ✅ Allow frontend requests (CORS)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",                  # local frontend
-        "https://chat-box-2-r8lx.onrender.com",   # deployed frontend on Render
-    ],
+    allow_origins=["*"],  # change to ["https://your-frontend.onrender.com"] for stricter security
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# OAuth2 setup
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-# ==============================
-# In-Memory Storage
-# ==============================
+# In-memory stores
 users_db = {}
 projects_db = {}
-project_counter = 1
 
-# ==============================
-# Schemas (Pydantic v2 compatible)
-# ==============================
-class RegisterRequest(BaseModel):
+# ------------------ MODELS ------------------
+class User(BaseModel):
     email: str
     password: str
 
-class ProjectRequest(BaseModel):
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+class Project(BaseModel):
+    id: str
     name: str
-    description: Optional[str] = ""
+    files: List[str] = []
 
-class ProjectUpdateRequest(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-
-class PromptRequest(BaseModel):
-    title: str
-    content: str
-
-class ChatRequest(BaseModel):
-    project_id: int
+class ChatMessage(BaseModel):
+    project_id: str
     message: str
-    reset: Optional[bool] = False
+    reset: bool = False
 
-# ==============================
-# Auth Helpers
-# ==============================
+
+# ------------------ UTILS ------------------
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=15))
+    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-def decode_token(token: str):
+
+def get_current_user(token: str = Depends(oauth2_scheme)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="❌ Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload.get("sub")
+        email: str = payload.get("sub")
+        if email is None or email not in users_db:
+            raise credentials_exception
     except JWTError:
-        return None
+        raise credentials_exception
+    return users_db[email]
 
-async def get_current_user(token: str = Depends(oauth2_scheme)):
-    user = decode_token(token)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
-    return user
 
-# ==============================
-# OpenRouter Helper
-# ==============================
-def call_openrouter(messages):
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost:8000",  # required by OpenRouter
-        "X-Title": "Chat Box",                   # required by OpenRouter
-    }
-    payload = {
-        "model": "google/gemini-pro-1.5",  # ✅ Gemini 1.5 Pro
-        "messages": messages,
-        "max_tokens": 1000,                # ✅ safe cap
-    }
-
-    res = requests.post(OPENROUTER_API_URL, headers=headers, json=payload)
-
-    if res.status_code != 200:
-        raise Exception(f"OpenRouter error: {res.status_code} - {res.text}")
-
-    data = res.json()
-    return data["choices"][0]["message"]["content"]
-
-# ==============================
-# Routes
-# ==============================
-
-# ✅ Root health check (for Render)
-@app.get("/", include_in_schema=False)
-async def root():
-    return {"msg": "✅ Chat Box Backend is running on Render"}
-
-@app.head("/", include_in_schema=False)
-async def root_head():
-    return {"msg": "✅ Chat Box Backend is running on Render"}
-
+# ------------------ AUTH ------------------
 @app.post("/register")
-def register(req: RegisterRequest):
-    if req.email in users_db:
+def register(user: User):
+    if user.email in users_db:
         raise HTTPException(status_code=400, detail="User already exists")
-    users_db[req.email] = {"password": req.password}
-    projects_db[req.email] = []
-    return {"msg": "User registered"}
+    users_db[user.email] = {"email": user.email, "password": user.password}
+    return {"msg": "User registered successfully"}
 
-@app.post("/token")
+
+@app.post("/token", response_model=Token)
 def login(form_data: OAuth2PasswordRequestForm = Depends()):
     user = users_db.get(form_data.username)
     if not user or user["password"] != form_data.password:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    token = create_access_token(
-        {"sub": form_data.username},
-        expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    )
-    return {"access_token": token, "token_type": "bearer"}
+        raise HTTPException(status_code=400, detail="Incorrect email or password")
+    access_token = create_access_token(data={"sub": user["email"]})
+    return {"access_token": access_token, "token_type": "bearer"}
 
-@app.post("/projects")
-def create_project(req: ProjectRequest, current_user: str = Depends(get_current_user)):
-    global project_counter
-    project = {
-        "id": project_counter,
-        "name": req.name,
-        "description": req.description,
-        "prompts": [],
-        "chats": [],
-        "files": []
-    }
-    projects_db[current_user].append(project)
-    project_counter += 1
+
+# ------------------ PROJECTS ------------------
+@app.get("/projects", response_model=List[Project])
+def get_projects(current_user: dict = Depends(get_current_user)):
+    return list(projects_db.values())
+
+
+@app.post("/projects", response_model=Project)
+def create_project(project: Project, current_user: dict = Depends(get_current_user)):
+    if project.id in projects_db:
+        raise HTTPException(status_code=400, detail="Project already exists")
+    projects_db[project.id] = project
     return project
 
-@app.get("/projects")
-def list_projects(current_user: str = Depends(get_current_user)):
-    return {"projects": projects_db.get(current_user, [])}
-
-@app.post("/chat")
-def chat(req: ChatRequest, current_user: str = Depends(get_current_user)):
-    if current_user not in projects_db:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    for p in projects_db[current_user]:
-        if p["id"] == req.project_id:
-            if req.reset:
-                p["chats"] = []
-
-            if not req.message:
-                raise HTTPException(status_code=400, detail="Message cannot be empty")
-
-            p["chats"].append({"role": "user", "content": req.message})
-
-            messages = [{"role": "system", "content": "You are a helpful assistant."}]
-            messages.extend(p["chats"])
-
-            try:
-                bot_response = call_openrouter(messages)
-            except Exception as e:
-                print("OpenRouter error:", traceback.format_exc())
-                raise HTTPException(status_code=500, detail=f"OpenRouter error: {str(e)}")
-
-            p["chats"].append({"role": "assistant", "content": bot_response})
-
-            return {
-                "response": bot_response,
-                "history": p["chats"],
-                "reset_applied": req.reset,
-            }
-
-    raise HTTPException(status_code=404, detail="Project not found")
 
 @app.delete("/projects/{project_id}")
-def delete_project(project_id: int, current_user: str = Depends(get_current_user)):
-    projects = projects_db.get(current_user, [])
-    for p in projects:
-        if p["id"] == project_id:
-            projects.remove(p)
-            return {"msg": "Project deleted"}
-    raise HTTPException(status_code=404, detail="Project not found")
+def delete_project(project_id: str, current_user: dict = Depends(get_current_user)):
+    if project_id not in projects_db:
+        raise HTTPException(status_code=404, detail="Project not found")
+    del projects_db[project_id]
+    return {"msg": "Project deleted"}
 
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+# ------------------ FILE UPLOAD ------------------
 @app.post("/projects/{project_id}/upload")
-async def upload_file(project_id: int, file: UploadFile = File(...), current_user: str = Depends(get_current_user)):
-    for p in projects_db[current_user]:
-        if p["id"] == project_id:
-            file_path = os.path.join(UPLOAD_DIR, f"{current_user}_{project_id}_{file.filename}")
-            with open(file_path, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
+def upload_file(
+    project_id: str,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user)
+):
+    if project_id not in projects_db:
+        raise HTTPException(status_code=404, detail="Project not found")
 
-            file_text = ""
-            if file.filename.endswith(".pdf"):
-                with open(file_path, "rb") as pdf_file:
-                    reader = PyPDF2.PdfReader(pdf_file)
-                    for page in reader.pages:
-                        file_text += page.extract_text() or ""
+    upload_dir = "uploads"
+    os.makedirs(upload_dir, exist_ok=True)
 
-            p["files"].append({"filename": file.filename, "content": file_text})
-            return {"msg": "File uploaded", "filename": file.filename}
-    raise HTTPException(status_code=404, detail="Project not found")
+    filename = f"{uuid.uuid4()}_{file.filename}"
+    filepath = os.path.join(upload_dir, filename)
+
+    with open(filepath, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    projects_db[project_id].files.append(filename)
+    return {"filename": filename, "msg": "File uploaded successfully"}
+
 
 @app.delete("/projects/{project_id}/files/{file_index}")
-def delete_file(project_id: int, file_index: int, current_user: str = Depends(get_current_user)):
-    for p in projects_db.get(current_user, []):
-        if p["id"] == project_id:
-            if 0 <= file_index < len(p.get("files", [])):
-                removed = p["files"].pop(file_index)
-                return {"msg": f"File '{removed['filename']}' deleted"}
-            raise HTTPException(status_code=400, detail="Invalid file index")
-    raise HTTPException(status_code=404, detail="Project not found")
-
-@app.get("/ping")
-def ping():
+def delete_file(project_id: str, file_index: int, current_user: dict = Depends(get_current_user)):
+    if project_id not in projects_db:
+        raise HTTPException(status_code=404, detail="Project not found")
     try:
-        res = call_openrouter([{"role": "user", "content": "Say pong"}])
-        return {"msg": res}
-    except Exception as e:
-        return {"error": str(e)}
+        removed = projects_db[project_id].files.pop(file_index)
+        return {"msg": f"Removed {removed}"}
+    except IndexError:
+        raise HTTPException(status_code=404, detail="File not found")
+
+
+# ------------------ CHAT ------------------
+@app.post("/chat")
+def chat(chat: ChatMessage, current_user: dict = Depends(get_current_user)):
+    if chat.project_id not in projects_db:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # (Demo response - replace with OpenAI/OpenRouter call)
+    response = f"🤖 Echo: {chat.message}"
+
+    return {"history": [{"role": "user", "content": chat.message},
+                        {"role": "assistant", "content": response}]}

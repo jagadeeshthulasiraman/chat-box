@@ -1,8 +1,6 @@
-fastapi==0.117.1
-uvicorn[standard]==0.23.2
-python-multipart==0.0.6
-python-jose==3.3.0
-python-dotenv==1.0.0
-requests==2.31.0
-PyPDF2==3.0.1
-pydantic==2.11.1
+fastapi
+uvicorn
+python-multipart
+python-jose[cryptography]
+python-dotenv
+pydantic
