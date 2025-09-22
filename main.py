@@ -30,7 +30,10 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # frontend
+    allow_origins=[
+        "http://localhost:5173",                  # local frontend
+        "https://chat-box-2-r8lx.onrender.com",   # deployed frontend on Render
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
