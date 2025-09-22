@@ -1,18 +1,10 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState } from "react";
 import { login } from "../api";
 
 export default function Login({ onLogin, onSwitch }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const emailRef = useRef(null);
-
-  // Autofocus email on mount
-  useEffect(() => {
-    if (emailRef.current) {
-      emailRef.current.focus();
-    }
-  }, []);
 
   async function handleLogin(e) {
     e.preventDefault();
@@ -26,7 +18,11 @@ export default function Login({ onLogin, onSwitch }) {
         alert(data.detail || "❌ Login failed");
       }
     } catch (err) {
-      alert(err.response?.data?.detail || "❌ Server error. Please try again.");
+      if (err.response?.data?.detail) {
+        alert("❌ " + err.response.data.detail);
+      } else {
+        alert("❌ Server error. Please try again.");
+      }
     } finally {
       setLoading(false);
     }
@@ -40,9 +36,7 @@ export default function Login({ onLogin, onSwitch }) {
       <h2 className="text-xl font-bold mb-4 text-center">Login</h2>
 
       <input
-        ref={emailRef}
         type="email"
-        aria-label="Email"
         className="w-full p-2 border rounded mb-2 dark:bg-gray-700 dark:text-white"
         placeholder="Email"
         value={email}
@@ -52,7 +46,6 @@ export default function Login({ onLogin, onSwitch }) {
 
       <input
         type="password"
-        aria-label="Password"
         className="w-full p-2 border rounded mb-2 dark:bg-gray-700 dark:text-white"
         placeholder="Password"
         value={password}
@@ -78,7 +71,7 @@ export default function Login({ onLogin, onSwitch }) {
       <p className="mt-3 text-sm text-center text-gray-600 dark:text-gray-300">
         Don’t have an account?{" "}
         <button
-          type="button" // ✅ prevents accidental submit
+          type="button"
           className="text-blue-600 dark:text-blue-400 underline"
           onClick={onSwitch}
         >
