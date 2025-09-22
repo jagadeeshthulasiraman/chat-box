@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { register } from "../api";
 
+
 export default function Register({ onSwitch }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

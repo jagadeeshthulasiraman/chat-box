@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { getProjects, createProject, deleteFile, uploadFile } from "./api";
-import ChatPage from "./ChatPage";
+import { getProjects, createProject, deleteFile, uploadFile } from "../api";
+import ChatPage from "./Chat";
 
 export default function ProjectsPage({ token, onLogout }) {
   const [projects, setProjects] = useState([]);

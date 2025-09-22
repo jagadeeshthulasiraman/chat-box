@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from "react";
-import { chat } from "./api";
+import { useState } from "react";
+import { chat } from "../api";
 
 export default function ChatPage({ token, project, onClose }) {
   const [message, setMessage] = useState("");
