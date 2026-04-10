@@ -1,9 +1,10 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
-from typing import List
-import requests
+import requests as http_requests
 import os
+import shutil
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -19,18 +20,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
 # ---- In-memory storage ----
 users = {}
 projects = {}
 chats = {}
-sessions = {}
+files_db = {}
 
 # ---- Models ----
 class RegisterRequest(BaseModel):
-    email: str
-    password: str
-
-class LoginRequest(BaseModel):
     email: str
     password: str
 
@@ -41,11 +40,12 @@ class ChatRequest(BaseModel):
     project_id: int
     message: str
 
-# ---- Auth ----
+# ---- Health ----
 @app.get("/ping")
 def ping():
     return {"status": "ok"}
 
+# ---- Auth ----
 @app.post("/register")
 def register(req: RegisterRequest):
     if req.email in users:
@@ -53,61 +53,80 @@ def register(req: RegisterRequest):
     users[req.email] = req.password
     return {"message": "User registered"}
 
-@app.post("/login")
-def login(req: LoginRequest):
-    if users.get(req.email) != req.password:
+@app.post("/token")
+def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    email = form_data.username
+    if users.get(email) != form_data.password:
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    token = f"token-{req.email}"
-    sessions[token] = req.email
-    return {"access_token": token}
-
-def get_current_user(token: str):
-    if token not in sessions:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    return sessions[token]
+    token = email
+    return {"access_token": token, "token_type": "bearer"}
 
 # ---- Projects ----
 @app.get("/projects")
-def list_projects(token: str):
-    user = get_current_user(token)
-    return projects.get(user, [])
+def list_projects(token: str = Depends(oauth2_scheme)):
+    return projects.get(token, [])
 
 @app.post("/projects")
-def create_project(req: ProjectRequest, token: str):
-    user = get_current_user(token)
-    user_projects = projects.setdefault(user, [])
+def create_project(req: ProjectRequest, token: str = Depends(oauth2_scheme)):
+    user_projects = projects.setdefault(token, [])
     project_id = len(user_projects) + 1
-    project = {"id": project_id, "name": req.name}
+    project = {"id": project_id, "name": req.name, "files": []}
     user_projects.append(project)
-    chats[(user, project_id)] = []
+    chats[(token, project_id)] = []
+    files_db[(token, project_id)] = []
     return project
 
 @app.delete("/projects/{project_id}")
-def delete_project(project_id: int, token: str):
-    user = get_current_user(token)
-    projects[user] = [p for p in projects.get(user, []) if p["id"] != project_id]
-    chats.pop((user, project_id), None)
+def delete_project(project_id: int, token: str = Depends(oauth2_scheme)):
+    projects[token] = [p for p in projects.get(token, []) if p["id"] != project_id]
+    chats.pop((token, project_id), None)
+    files_db.pop((token, project_id), None)
     return {"message": "Deleted"}
+
+# ---- File Upload ----
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+@app.post("/projects/{project_id}/upload")
+def upload_file(project_id: int, file: UploadFile = File(...), token: str = Depends(oauth2_scheme)):
+    project_path = os.path.join(UPLOAD_DIR, token.replace("@", "_"), str(project_id))
+    os.makedirs(project_path, exist_ok=True)
+    file_path = os.path.join(project_path, file.filename)
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    file_list = files_db.setdefault((token, project_id), [])
+    file_list.append(file.filename)
+    return {"message": "File uploaded", "filename": file.filename}
+
+@app.delete("/projects/{project_id}/files/{file_index}")
+def delete_file(project_id: int, file_index: int, token: str = Depends(oauth2_scheme)):
+    file_list = files_db.get((token, project_id), [])
+    if file_index >= len(file_list):
+        raise HTTPException(status_code=404, detail="File not found")
+    filename = file_list.pop(file_index)
+    file_path = os.path.join(UPLOAD_DIR, token.replace("@", "_"), str(project_id), filename)
+    if os.path.exists(file_path):
+        os.remove(file_path)
+    return {"message": "File deleted"}
 
 # ---- Chat ----
 @app.post("/chat")
-def chat(req: ChatRequest, token: str):
-    user = get_current_user(token)
-    history = chats.get((user, req.project_id), [])
+def chat(req: ChatRequest, token: str = Depends(oauth2_scheme)):
+    history = chats.get((token, req.project_id), [])
     history.append({"role": "user", "content": req.message})
 
     if not OPENROUTER_API_KEY:
         raise HTTPException(status_code=500, detail="OPENROUTER_API_KEY not set")
 
     try:
-        response = requests.post(
+        response = http_requests.post(
             url="https://openrouter.ai/api/v1/chat/completions",
             headers={
                 "Authorization": f"Bearer {OPENROUTER_API_KEY}",
                 "Content-Type": "application/json",
             },
             json={
-                "model": "google/gemini-pro-1.5",
+                "model": "mistralai/mistral-7b-instruct:free",
                 "messages": history,
                 "max_tokens": 1000,
             },
@@ -117,9 +136,9 @@ def chat(req: ChatRequest, token: str):
         data = response.json()
         reply = data["choices"][0]["message"]["content"]
         history.append({"role": "assistant", "content": reply})
-        chats[(user, req.project_id)] = history
+        chats[(token, req.project_id)] = history
         return {"history": history}
-    except requests.exceptions.Timeout:
+    except http_requests.exceptions.Timeout:
         raise HTTPException(status_code=504, detail="AI response timed out")
-    except requests.exceptions.RequestException as e:
+    except http_requests.exceptions.RequestException as e:
         raise HTTPException(status_code=500, detail=f"OpenRouter error: {str(e)}")
