@@ -1,5 +1,6 @@
 fastapi
-uvicorn
-python-jose
-python-multipart
+uvicorn[standard]
 python-dotenv
+requests
+python-jose[cryptography]
+python-multipart
