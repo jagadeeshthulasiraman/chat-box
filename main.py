@@ -5,6 +5,7 @@ from pydantic import BaseModel
 import requests as http_requests
 import os
 import shutil
+import traceback
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -43,7 +44,7 @@ class ChatRequest(BaseModel):
 # ---- Health ----
 @app.get("/ping")
 def ping():
-    return {"status": "ok"}
+    return {"status": "ok", "key_set": bool(OPENROUTER_API_KEY)}
 
 # ---- Auth ----
 @app.post("/register")
@@ -58,8 +59,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends()):
     email = form_data.username
     if users.get(email) != form_data.password:
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    token = email
-    return {"access_token": token, "token_type": "bearer"}
+    return {"access_token": email, "token_type": "bearer"}
 
 # ---- Projects ----
 @app.get("/projects")
@@ -126,19 +126,20 @@ def chat(req: ChatRequest, token: str = Depends(oauth2_scheme)):
                 "Content-Type": "application/json",
             },
             json={
-                "model": "mistralai/mistral-7b-instruct:free",
+                "model": "openai/gpt-3.5-turbo",
                 "messages": history,
                 "max_tokens": 1000,
             },
             timeout=30,
         )
+        print("OpenRouter status:", response.status_code)
+        print("OpenRouter response:", response.text)
         response.raise_for_status()
         data = response.json()
         reply = data["choices"][0]["message"]["content"]
         history.append({"role": "assistant", "content": reply})
         chats[(token, req.project_id)] = history
         return {"history": history}
-    except http_requests.exceptions.Timeout:
-        raise HTTPException(status_code=504, detail="AI response timed out")
-    except http_requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=500, detail=f"OpenRouter error: {str(e)}")
+    except Exception as e:
+        print("CHAT ERROR:", traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
